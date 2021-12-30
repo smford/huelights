@@ -17,7 +17,7 @@ import (
 )
 
 const applicationName string = "huelight"
-const applicationVersion string = "v0.2"
+const applicationVersion string = "v0.2.1"
 
 var (
 	myBridge     *huego.Bridge
@@ -31,6 +31,7 @@ var (
 )
 
 func init() {
+	// tidy
 	flag.String("config", "config.yaml", "Configuration file: /path/to/file.yaml, default = ./config.yaml")
 	flag.Bool("displayconfig", false, "Display configuration")
 	flag.Bool("help", false, "Display help")
@@ -38,7 +39,7 @@ func init() {
 	flag.String("light", "", "Light ID")
 	flag.String("action", "", "Action to do")
 	flag.Bool("listall", false, "List all lights details")
-	flag.Bool("list", false, "List lists")
+	flag.Bool("list", false, "List lights")
 
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
@@ -114,10 +115,12 @@ func main() {
 	var bridgeerr error
 	myBridge, bridgeerr = huego.Discover()
 	if bridgeerr != nil {
+		// tidy
 		panic(bridgeerr)
 	}
 	fmt.Println("Bridge found:", myBridge)
-	// logging in to bridge
+
+	// login in to bridge
 	myBridge = myBridge.Login(user)
 
 	/*
@@ -194,7 +197,6 @@ func checkAction(actionCheck string) bool {
 
 // prints list of valid actions
 func listActions() {
-
 	// sort the keys alphabetically to make better to display
 	var sortedKeys []string
 	for k := range validActions {
@@ -212,10 +214,6 @@ func listActions() {
 	}
 
 	w.Flush()
-}
-
-func doAction() {
-	fmt.Println("doing action")
 }
 
 func listLights() {
@@ -256,5 +254,8 @@ func listLights() {
 
 	}
 	w.Flush()
+}
 
+func doAction() {
+	fmt.Println("doing action")
 }
