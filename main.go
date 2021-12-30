@@ -17,7 +17,7 @@ import (
 )
 
 const applicationName string = "huelight"
-const applicationVersion string = "v0.2.4"
+const applicationVersion string = "v0.2.5"
 
 var (
 	myBridge     *huego.Bridge
@@ -43,6 +43,7 @@ func init() {
 	flag.Bool("list", false, "List lights")
 	flag.Bool("showbridge", false, "Show bridge details")
 	flag.Bool("showusers", false, "Show user list")
+	flag.Bool("bridgeconfig", false, "Show bridge configuration")
 
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
@@ -167,6 +168,11 @@ func main() {
 		w.Flush()
 	*/
 
+	if viper.IsSet("bridgeconfig") {
+		displayBridgeConfig()
+		os.Exit(0)
+	}
+
 	if viper.IsSet("list") || viper.IsSet("listall") {
 		fmt.Println("====================")
 		listLights()
@@ -204,7 +210,7 @@ func displayHelp() {
       --showusers           List all user/whitelist details
       --showbridge          Show logged in bridge details
       --light               Select a light
-      --status              Show status of light (on or off)
+      --bridgeconfig        Show bridge configuration
 `
 	fmt.Println(applicationName + " " + applicationVersion)
 	fmt.Println(message)
@@ -219,7 +225,7 @@ func checkAction(actionCheck string) bool {
 	}
 }
 
-// prints list of valid actions
+// display list of valid actions
 func listActions() {
 	// sort the keys alphabetically to make better to display
 	var sortedKeys []string
@@ -240,6 +246,7 @@ func listActions() {
 	w.Flush()
 }
 
+// display light information
 func listLights() {
 	lights, err := myBridge.GetLights()
 	if err != nil {
@@ -279,6 +286,7 @@ func listLights() {
 	w.Flush()
 }
 
+// display bridge connection information
 func displayBridge(thisBridge *huego.Bridge) {
 	const padding = 1
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, padding, ' ', 0)
@@ -288,6 +296,7 @@ func displayBridge(thisBridge *huego.Bridge) {
 	w.Flush()
 }
 
+// display a list of all users/whitelists
 func displayUsers(thisBridge *huego.Bridge) {
 	allusers, err := thisBridge.GetUsers()
 	if err != nil {
@@ -314,6 +323,7 @@ func displayUsers(thisBridge *huego.Bridge) {
 	fmt.Printf("\nNumber of users found: %d\n", len(allusers))
 }
 
+// runs actions
 func doAction() {
 	fmt.Printf("Doing action: %s\n", action)
 
@@ -347,4 +357,81 @@ func doAction() {
 
 		fmt.Printf("Light: \"%s\" is %s\n", light.Name, lightstate)
 	}
+}
+
+// display all configuration of the bridge
+func displayBridgeConfig() {
+	myconfig, err := myBridge.GetConfig()
+	if err != nil {
+		// tidy
+		panic(err)
+	}
+
+	const padding = 1
+	w := tabwriter.NewWriter(os.Stdout, 0, 2, padding, ' ', 0)
+	fmt.Fprintf(w, "%s\t%s\t\n", "Setting", "Configuration")
+	fmt.Fprintf(w, "%s\t%s\t\n", "-------", "-------------")
+	fmt.Fprintf(w, "%s\t%s\t\n", "Name", myconfig.Name)
+	fmt.Fprintf(w, "%s\t%s\t\n", "BridgeID", myconfig.BridgeID)
+	fmt.Fprintf(w, "%s\t%s\t\n", "ModelID", myconfig.ModelID)
+	fmt.Fprintf(w, "%s\t%d\t\n", "ZigbeeChannel", myconfig.ZigbeeChannel)
+	fmt.Fprintf(w, "%s\t%t\t\n", "FactoryNew", myconfig.FactoryNew)
+	fmt.Fprintf(w, "%s\t%s\t\n", "ReplacesBridgeID", myconfig.ReplacesBridgeID)
+	fmt.Fprintf(w, "%s\t%s\t\n", "DatastoreVersion", myconfig.DatastoreVersion)
+	fmt.Fprintf(w, "%s\t%s\t\n", "StarterKitID", myconfig.StarterKitID)
+
+	fmt.Fprintf(w, "%s\t%s\t\n", "InternetService.Internet", myconfig.InternetService.Internet)
+	fmt.Fprintf(w, "%s\t%s\t\n", "InternetService.RemoteAccess", myconfig.InternetService.RemoteAccess)
+	fmt.Fprintf(w, "%s\t%s\t\n", "InternetService.Time", myconfig.InternetService.Time)
+	fmt.Fprintf(w, "%s\t%s\t\n", "InternetService.SwUpdate", myconfig.InternetService.SwUpdate)
+
+	fmt.Fprintf(w, "%s\t%s\t\n", "SwUpdate2.Bridge.State", myconfig.SwUpdate2.Bridge.State)
+	fmt.Fprintf(w, "%s\t%s\t\n", "SwUpdate2.Bridge.LastInstall", myconfig.SwUpdate2.Bridge.LastInstall)
+	fmt.Fprintf(w, "%s\t%t\t\n", "SwUpdate2.CheckForUpdate", myconfig.SwUpdate2.CheckForUpdate)
+	fmt.Fprintf(w, "%s\t%s\t\n", "SwUpdate2.State", myconfig.SwUpdate2.State)
+	fmt.Fprintf(w, "%s\t%t\t\n", "SwUpdate2.Install", myconfig.SwUpdate2.Install)
+	fmt.Fprintf(w, "%s\t%t\t\n", "SwUpdate2.AutoInstall.On", myconfig.SwUpdate2.AutoInstall.On)
+	fmt.Fprintf(w, "%s\t%s\t\n", "SwUpdate2.AutoInstall.UpdateTime", myconfig.SwUpdate2.AutoInstall.UpdateTime)
+	fmt.Fprintf(w, "%s\t%s\t\n", "SwUpdate2.LastChange", myconfig.SwUpdate2.LastChange)
+	fmt.Fprintf(w, "%s\t%s\t\n", "SwUpdate2.LastInstall", myconfig.SwUpdate2.LastInstall)
+
+	fmt.Fprintf(w, "%s\t%s\t\n", "APIVersion", myconfig.APIVersion)
+	fmt.Fprintf(w, "%s\t%s\t\n", "SwVersion", myconfig.SwVersion)
+
+	// WhitelistMap has the same contents as []Whitelist so can be ignored
+	// fmt.Fprintf(w, "%s\t%s\t\n", "WhitelistMap", myconfig.WhitelistMap)
+
+	// sort the whitelist/users alphabetically by name
+	sort.SliceStable(myconfig.Whitelist, func(i, j int) bool {
+		return myconfig.Whitelist[i].Name < myconfig.Whitelist[j].Name
+	})
+
+	for i, key := range myconfig.Whitelist {
+		fmt.Fprintf(w, "%s%d%s\t%s\t\n", "Whitelist.", i, ".Name", key.Name)
+		fmt.Fprintf(w, "%s%d%s\t%s\t\n", "Whitelist.", i, ".Username", key.Username)
+		fmt.Fprintf(w, "%s%d%s\t%s\t\n", "Whitelist.", i, ".CreateDate", key.CreateDate)
+		fmt.Fprintf(w, "%s%d%s\t%s\t\n", "Whitelist.", i, ".LastUseDate", key.LastUseDate)
+		fmt.Fprintf(w, "%s%d%s\t%s\t\n", "Whitelist.", i, ".ClientKey", key.ClientKey)
+	}
+
+	fmt.Fprintf(w, "%s\t%t\t\n", "PortalState.SignedOn", myconfig.PortalState.SignedOn)
+	fmt.Fprintf(w, "%s\t%t\t\n", "PortalState.Incoming", myconfig.PortalState.Incoming)
+	fmt.Fprintf(w, "%s\t%t\t\n", "PortalState.Outgoing", myconfig.PortalState.Outgoing)
+	fmt.Fprintf(w, "%s\t%s\t\n", "PortalState.Communication", myconfig.PortalState.Communication)
+
+	fmt.Fprintf(w, "%s\t%s\t\n", "Network.IPAddress", myconfig.IPAddress)
+	fmt.Fprintf(w, "%s\t%s\t\n", "Network.Mac", myconfig.Mac)
+	fmt.Fprintf(w, "%s\t%s\t\n", "Network.NetMask", myconfig.NetMask)
+	fmt.Fprintf(w, "%s\t%s\t\n", "Network.Gateway", myconfig.Gateway)
+	fmt.Fprintf(w, "%s\t%t\t\n", "Network.DHCP", myconfig.Dhcp)
+	fmt.Fprintf(w, "%s\t%s\t\n", "Network.ProxyAddress", myconfig.ProxyAddress)
+	fmt.Fprintf(w, "%s\t%d\t\n", "Network.ProxyPort", myconfig.ProxyPort)
+
+	fmt.Fprintf(w, "%s\t%t\t\n", "LinkButton", myconfig.LinkButton)
+
+	fmt.Fprintf(w, "%s\t%s\t\n", "Time.UTC", myconfig.UTC)
+	fmt.Fprintf(w, "%s\t%s\t\n", "Time.LocalTime", myconfig.LocalTime)
+	fmt.Fprintf(w, "%s\t%s\t\n", "Time.TimeZone", myconfig.TimeZone)
+
+	w.Flush()
 }
