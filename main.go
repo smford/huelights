@@ -17,7 +17,7 @@ import (
 )
 
 const applicationName string = "huelight"
-const applicationVersion string = "v0.2.2"
+const applicationVersion string = "v0.2.3"
 
 var (
 	myBridge     *huego.Bridge
@@ -42,6 +42,7 @@ func init() {
 	flag.Bool("listall", false, "List all lights details")
 	flag.Bool("list", false, "List lights")
 	flag.Bool("showbridge", false, "Show bridge details")
+	flag.Bool("showusers", false, "Show user list")
 
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
@@ -131,6 +132,10 @@ func main() {
 		displayBridge(myBridge)
 	}
 
+	if viper.GetBool("showusers") {
+		displayUsers(myBridge)
+	}
+
 	/*
 		lights, err := myBridge.GetLights()
 		if err != nil {
@@ -184,11 +189,18 @@ func displayConfig() {
 
 // displays help information
 func displayHelp() {
+	// tidy
 	message := `
       --config string       Configuration file: /path/to/file.yaml (default "./config.yaml")
       --displayconfig       Display configuration
       --help                Display help
       --version             Display version
+      --list                List lights
+      --listall             List all details about the lights
+      --action              Do actions
+      --showusers           List all user/whitelist details
+      --showbridge          Show logged in bridge details
+      --light               Select a light
 `
 	fmt.Println(applicationName + " " + applicationVersion)
 	fmt.Println(message)
@@ -270,6 +282,32 @@ func displayBridge(thisBridge *huego.Bridge) {
 	fmt.Fprintf(w, "%-15s\t%s\t%s\t\n", "---------------", "--------", "----")
 	fmt.Fprintf(w, "%-15s\t%s\t%s\t\n", thisBridge.Host, myBridgeID, thisBridge.User)
 	w.Flush()
+}
+
+func displayUsers(thisBridge *huego.Bridge) {
+	allusers, err := thisBridge.GetUsers()
+	if err != nil {
+		// tidy
+		panic(err)
+	}
+
+	const padding = 1
+	w := tabwriter.NewWriter(os.Stdout, 0, 2, padding, ' ', 0)
+	fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t\n", "Name", "Username", "CreateDate", "LastUseDate", "ClientKey")
+	fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t\n", "----", "--------", "----------", "-----------", "---------")
+
+	// sort the users slice to make output consistent
+	sort.SliceStable(allusers, func(i, j int) bool {
+		return allusers[i].Name < allusers[j].Name
+	})
+
+	for _, eachuser := range allusers {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t\n", eachuser.Name, eachuser.Username, eachuser.CreateDate, eachuser.LastUseDate, eachuser.ClientKey)
+	}
+
+	w.Flush()
+
+	fmt.Printf("\nNumber of users found: %d\n", len(allusers))
 }
 
 func doAction() {
