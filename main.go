@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -16,13 +17,28 @@ import (
 )
 
 const applicationName string = "huelight"
-const applicationVersion string = "v0.1"
+const applicationVersion string = "v0.2"
+
+var (
+	myBridge     *huego.Bridge
+	lightID      int
+	action       string
+	validActions = map[string]string{
+		"on":     "Turn light on",
+		"off":    "Turn light off",
+		"status": "Show current state",
+	}
+)
 
 func init() {
 	flag.String("config", "config.yaml", "Configuration file: /path/to/file.yaml, default = ./config.yaml")
 	flag.Bool("displayconfig", false, "Display configuration")
 	flag.Bool("help", false, "Display help")
 	flag.Bool("version", false, "Display version")
+	flag.String("light", "", "Light ID")
+	flag.String("action", "", "Action to do")
+	flag.Bool("listall", false, "List all lights details")
+	flag.Bool("list", false, "List lists")
 
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
@@ -70,39 +86,76 @@ func main() {
 
 	user := viper.GetString("hueuser")
 
-	bridge, err := huego.Discover()
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("Bridge found:", bridge)
-	bridge = bridge.Login(user)
-	lights, err := bridge.GetLights()
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("Found %d lights\n", len(lights))
-
-	// display all lights
-	const padding = 1
-	w := tabwriter.NewWriter(os.Stdout, 0, 2, padding, ' ', 0)
-	fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", "ID", "State", "Name", "Type", "ModelID", "Manufacturor", "UniqueID", "SwVersion", "SwConfigID", "ProductName")
-
-	sort.SliceStable(lights, func(i, j int) bool {
-		return lights[i].ID < lights[j].ID
-	})
-
-	for _, eachlight := range lights {
-		status := ""
-		if eachlight.State.On {
-			status = "on"
-		} else {
-			status = "off"
+	if viper.IsSet("light") {
+		fmt.Printf("Light string: %s\n", viper.GetString("light"))
+		lightID, err := strconv.Atoi(viper.GetString("light"))
+		if err != nil {
+			fmt.Printf("ERROR: \"--light %s\" is not valid\n", viper.GetString("light"))
+			os.Exit(1)
 		}
-
-		fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", eachlight.ID, status, eachlight.Name, eachlight.Type, eachlight.ModelID, eachlight.ManufacturerName, eachlight.UniqueID, eachlight.SwVersion, eachlight.SwConfigID, eachlight.ProductName)
-
+		fmt.Printf("Light number: %d\n", lightID)
+	} else {
+		fmt.Println("no light set")
 	}
-	w.Flush()
+
+	if viper.IsSet("action") {
+		if checkAction(viper.GetString("action")) {
+			// action is good
+			action = strings.ToLower(viper.GetString("action"))
+			fmt.Printf("ACTION: \"--action %s\" is valid\n", action)
+		} else {
+			fmt.Printf("ERROR: \"--action %s\" is not valid\n", viper.GetString("action"))
+			fmt.Println("Valid actions are:")
+			listActions()
+			os.Exit(1)
+		}
+	}
+
+	var bridgeerr error
+	myBridge, bridgeerr = huego.Discover()
+	if bridgeerr != nil {
+		panic(bridgeerr)
+	}
+	fmt.Println("Bridge found:", myBridge)
+	// logging in to bridge
+	myBridge = myBridge.Login(user)
+
+	/*
+		lights, err := myBridge.GetLights()
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("Found %d lights\n", len(lights))
+
+		// display all lights
+		const padding = 1
+		w := tabwriter.NewWriter(os.Stdout, 0, 2, padding, ' ', 0)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", "ID", "State", "Name", "Type", "ModelID", "Manufacturor", "UniqueID", "SwVersion", "SwConfigID", "ProductName")
+
+		sort.SliceStable(lights, func(i, j int) bool {
+			return lights[i].ID < lights[j].ID
+		})
+
+		for _, eachlight := range lights {
+			status := ""
+			if eachlight.State.On {
+				status = "on"
+			} else {
+				status = "off"
+			}
+
+			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", eachlight.ID, status, eachlight.Name, eachlight.Type, eachlight.ModelID, eachlight.ManufacturerName, eachlight.UniqueID, eachlight.SwVersion, eachlight.SwConfigID, eachlight.ProductName)
+
+		}
+		w.Flush()
+	*/
+
+	if viper.IsSet("list") || viper.IsSet("listall") {
+		fmt.Println("====================")
+		listLights()
+	}
+
+	doAction()
 }
 
 // displays configuration
@@ -128,4 +181,80 @@ func displayHelp() {
 `
 	fmt.Println(applicationName + " " + applicationVersion)
 	fmt.Println(message)
+}
+
+// checks if an action is valid
+func checkAction(actionCheck string) bool {
+	if _, ok := validActions[strings.ToLower(actionCheck)]; ok {
+		return true
+	} else {
+		return false
+	}
+}
+
+// prints list of valid actions
+func listActions() {
+
+	// sort the keys alphabetically to make better to display
+	var sortedKeys []string
+	for k := range validActions {
+		sortedKeys = append(sortedKeys, k)
+	}
+	sort.Strings(sortedKeys)
+
+	const padding = 1
+	w := tabwriter.NewWriter(os.Stdout, 0, 2, padding, ' ', 0)
+	fmt.Fprintf(w, "%s\t%s\t\n", "Action", "Description")
+	fmt.Fprintf(w, "%s\t%s\t\n", "------", "-----------")
+
+	for _, k := range sortedKeys {
+		fmt.Fprintf(w, "%s\t%s\t\n", k, validActions[k])
+	}
+
+	w.Flush()
+}
+
+func doAction() {
+	fmt.Println("doing action")
+}
+
+func listLights() {
+	fmt.Println("Bridge found:", myBridge)
+	lights, err := myBridge.GetLights()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("Found %d lights\n", len(lights))
+
+	// display all lights
+	const padding = 1
+	w := tabwriter.NewWriter(os.Stdout, 0, 2, padding, ' ', 0)
+	if viper.GetBool("listall") {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", "ID", "State", "Name", "Type", "ModelID", "Manufacturor", "UniqueID", "SwVersion", "SwConfigID", "ProductName")
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", "--", "-----", "----", "----", "-------", "------------", "--------", "---------", "----------", "-----------")
+	} else {
+		fmt.Fprintf(w, "%s\t%s\t%s\t\n", "ID", "State", "Name")
+		fmt.Fprintf(w, "%s\t%s\t%s\t\n", "--", "-----", "----")
+	}
+	sort.SliceStable(lights, func(i, j int) bool {
+		return lights[i].ID < lights[j].ID
+	})
+
+	for _, eachlight := range lights {
+		status := ""
+		if eachlight.State.On {
+			status = "on"
+		} else {
+			status = "off"
+		}
+
+		if viper.GetBool("listall") {
+			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t\n", eachlight.ID, status, eachlight.Name, eachlight.Type, eachlight.ModelID, eachlight.ManufacturerName, eachlight.UniqueID, eachlight.SwVersion, eachlight.SwConfigID, eachlight.ProductName)
+		} else {
+			fmt.Fprintf(w, "%d\t%s\t%s\t\n", eachlight.ID, status, eachlight.Name)
+		}
+
+	}
+	w.Flush()
+
 }
