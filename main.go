@@ -17,12 +17,13 @@ import (
 )
 
 const applicationName string = "huelight"
-const applicationVersion string = "v0.2.5"
+const applicationVersion string = "v0.2.6"
 
 var (
 	myBridge     *huego.Bridge
 	myBridgeID   string
 	lightID      int
+	loadedLights []huego.Light
 	action       string
 	validActions = map[string]string{
 		"on":     "Turn light on",
@@ -179,7 +180,13 @@ func main() {
 	}
 
 	if action != "" {
-		doAction()
+		if checkLightValid(lightID) {
+			doAction()
+		} else {
+			// tidy
+			fmt.Println("ERROR: lightID not found")
+			os.Exit(1)
+		}
 	}
 }
 
@@ -434,4 +441,60 @@ func displayBridgeConfig() {
 	fmt.Fprintf(w, "%s\t%s\t\n", "Time.TimeZone", myconfig.TimeZone)
 
 	w.Flush()
+}
+
+// check if a lightID is valid
+func checkLightValid(findLightID int) bool {
+	fmt.Println("checkLightValid start\n")
+	lights, err := myBridge.GetLights()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("Found %d lights\n", len(lights))
+
+	sort.SliceStable(lights, func(i, j int) bool {
+		return lights[i].ID < lights[j].ID
+	})
+
+	var found bool = false
+
+	for _, eachlight := range lights {
+		//fmt.Printf("light: %-2d  name:%s\n", eachlight.ID, eachlight.Name)
+		if eachlight.ID == findLightID {
+			found = true
+		}
+	}
+
+	fmt.Println("checkLightValid end\n")
+	return found
+}
+
+// loads lights from the bridge preventing multiple uneccessary calls to bridge
+func loadLights() {
+	fmt.Println("loadLights start\n")
+
+	var errload error
+	lights, errload := myBridge.GetLights()
+	if errload != nil {
+		fmt.Println("ERROR: Could not load lights from bridge\n")
+		os.Exit(1)
+	}
+
+	// if no lights were found
+	if len(lights) < 1 {
+		fmt.Println("ERROR: No lights found on bridge\n")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Found %d lights\n", len(lights))
+
+	// sorting lights by ID
+	sort.SliceStable(lights, func(i, j int) bool {
+		return lights[i].ID < lights[j].ID
+	})
+
+	// make in to global variable so that other functions can use the loaded lights list
+	loadedLights = lights
+
+	fmt.Println("loadLights end\n")
 }
