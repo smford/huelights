@@ -17,7 +17,7 @@ import (
 )
 
 const applicationName string = "huelight"
-const applicationVersion string = "v0.2.6"
+const applicationVersion string = "v0.2.6.1"
 
 var (
 	myBridge     *huego.Bridge
@@ -111,6 +111,7 @@ func main() {
 			action = strings.ToLower(viper.GetString("action"))
 			fmt.Printf("ACTION: \"--action %s\" is valid\n", action)
 		} else {
+			// action is bad
 			fmt.Printf("ERROR: \"--action %s\" is not valid\n", viper.GetString("action"))
 			fmt.Println("Valid actions are:")
 			listActions()
@@ -174,6 +175,9 @@ func main() {
 		os.Exit(0)
 	}
 
+	// load up all the lights from bridge
+	loadLights()
+
 	if viper.IsSet("list") || viper.IsSet("listall") {
 		fmt.Println("====================")
 		listLights()
@@ -184,7 +188,7 @@ func main() {
 			doAction()
 		} else {
 			// tidy
-			fmt.Println("ERROR: lightID not found")
+			fmt.Println("ERROR: light not found")
 			os.Exit(1)
 		}
 	}
@@ -255,11 +259,13 @@ func listActions() {
 
 // display light information
 func listLights() {
-	lights, err := myBridge.GetLights()
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("Found %d lights\n", len(lights))
+	/*
+		lights, err := myBridge.GetLights()
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("Found %d lights\n", len(lights))
+	*/
 
 	// display all lights
 	const padding = 1
@@ -271,11 +277,14 @@ func listLights() {
 		fmt.Fprintf(w, "%s\t%s\t%s\t\n", "ID", "State", "Name")
 		fmt.Fprintf(w, "%s\t%s\t%s\t\n", "--", "-----", "----")
 	}
-	sort.SliceStable(lights, func(i, j int) bool {
-		return lights[i].ID < lights[j].ID
-	})
 
-	for _, eachlight := range lights {
+	/*
+		sort.SliceStable(lights, func(i, j int) bool {
+			return lights[i].ID < lights[j].ID
+		})
+	*/
+
+	for _, eachlight := range loadedLights {
 		status := ""
 		if eachlight.State.On {
 			status = "on"
@@ -445,33 +454,32 @@ func displayBridgeConfig() {
 
 // check if a lightID is valid
 func checkLightValid(findLightID int) bool {
-	fmt.Println("checkLightValid start\n")
-	lights, err := myBridge.GetLights()
-	if err != nil {
-		panic(err)
-	}
-	fmt.Printf("Found %d lights\n", len(lights))
+	/*
+		lights, err := myBridge.GetLights()
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("Found %d lights\n", len(lights))
 
-	sort.SliceStable(lights, func(i, j int) bool {
-		return lights[i].ID < lights[j].ID
-	})
+		sort.SliceStable(lights, func(i, j int) bool {
+			return lights[i].ID < lights[j].ID
+		})
+	*/
 
 	var found bool = false
 
-	for _, eachlight := range lights {
+	for _, eachlight := range loadedLights {
 		//fmt.Printf("light: %-2d  name:%s\n", eachlight.ID, eachlight.Name)
 		if eachlight.ID == findLightID {
 			found = true
 		}
 	}
 
-	fmt.Println("checkLightValid end\n")
 	return found
 }
 
 // loads lights from the bridge preventing multiple uneccessary calls to bridge
 func loadLights() {
-	fmt.Println("loadLights start\n")
 
 	var errload error
 	lights, errload := myBridge.GetLights()
@@ -495,6 +503,4 @@ func loadLights() {
 
 	// make in to global variable so that other functions can use the loaded lights list
 	loadedLights = lights
-
-	fmt.Println("loadLights end\n")
 }
