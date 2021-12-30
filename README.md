@@ -7,7 +7,11 @@ A simple tool to control hue lights from the command line
 - delete user/whitelist
 - create user and save to config
 - display bridge configuration
+- check if lightid is valid
+- allow lightID or name to be passed with --light
 
 ## Done
 - print bridge details
 - show users/whitelist
+- turn lights on and off
+- get status of light (on or off)

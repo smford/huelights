@@ -17,7 +17,7 @@ import (
 )
 
 const applicationName string = "huelight"
-const applicationVersion string = "v0.2.3"
+const applicationVersion string = "v0.2.4"
 
 var (
 	myBridge     *huego.Bridge
@@ -92,8 +92,9 @@ func main() {
 
 	if viper.IsSet("light") {
 		fmt.Printf("Light string: %s\n", viper.GetString("light"))
-		lightID, err := strconv.Atoi(viper.GetString("light"))
-		if err != nil {
+		var lighterr error
+		lightID, lighterr = strconv.Atoi(viper.GetString("light"))
+		if lighterr != nil {
 			fmt.Printf("ERROR: \"--light %s\" is not valid\n", viper.GetString("light"))
 			os.Exit(1)
 		}
@@ -171,7 +172,9 @@ func main() {
 		listLights()
 	}
 
-	doAction()
+	if action != "" {
+		doAction()
+	}
 }
 
 // displays configuration
@@ -201,6 +204,7 @@ func displayHelp() {
       --showusers           List all user/whitelist details
       --showbridge          Show logged in bridge details
       --light               Select a light
+      --status              Show status of light (on or off)
 `
 	fmt.Println(applicationName + " " + applicationVersion)
 	fmt.Println(message)
@@ -311,5 +315,36 @@ func displayUsers(thisBridge *huego.Bridge) {
 }
 
 func doAction() {
-	fmt.Println("doing action")
+	fmt.Printf("Doing action: %s\n", action)
+
+	// turn light on and off
+	if strings.EqualFold(action, "on") || strings.EqualFold(action, "off") {
+		light, err := myBridge.GetLight(lightID)
+		if err != nil {
+			// tidy
+			panic(err)
+		}
+
+		if strings.EqualFold(action, "on") {
+			light.On()
+		} else {
+			light.Off()
+		}
+	}
+
+	// check status of light
+	if strings.EqualFold(action, "status") {
+		light, err := myBridge.GetLight(lightID)
+		if err != nil {
+			// tidy
+			panic(err)
+		}
+
+		lightstate := "off"
+		if light.IsOn() {
+			lightstate = "on"
+		}
+
+		fmt.Printf("Light: \"%s\" is %s\n", light.Name, lightstate)
+	}
 }
