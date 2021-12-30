@@ -17,10 +17,11 @@ import (
 )
 
 const applicationName string = "huelight"
-const applicationVersion string = "v0.2.1"
+const applicationVersion string = "v0.2.2"
 
 var (
 	myBridge     *huego.Bridge
+	myBridgeID   string
 	lightID      int
 	action       string
 	validActions = map[string]string{
@@ -40,6 +41,7 @@ func init() {
 	flag.String("action", "", "Action to do")
 	flag.Bool("listall", false, "List all lights details")
 	flag.Bool("list", false, "List lights")
+	flag.Bool("showbridge", false, "Show bridge details")
 
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
@@ -118,10 +120,16 @@ func main() {
 		// tidy
 		panic(bridgeerr)
 	}
-	fmt.Println("Bridge found:", myBridge)
+
+	// store selected bridge ID because struct loses it once logged in
+	myBridgeID = myBridge.ID
 
 	// login in to bridge
 	myBridge = myBridge.Login(user)
+
+	if viper.GetBool("showbridge") {
+		displayBridge(myBridge)
+	}
 
 	/*
 		lights, err := myBridge.GetLights()
@@ -217,7 +225,6 @@ func listActions() {
 }
 
 func listLights() {
-	fmt.Println("Bridge found:", myBridge)
 	lights, err := myBridge.GetLights()
 	if err != nil {
 		panic(err)
@@ -253,6 +260,15 @@ func listLights() {
 		}
 
 	}
+	w.Flush()
+}
+
+func displayBridge(thisBridge *huego.Bridge) {
+	const padding = 1
+	w := tabwriter.NewWriter(os.Stdout, 0, 2, padding, ' ', 0)
+	fmt.Fprintf(w, "%-15s\t%s\t%s\t\n", "Host", "BridgeID", "User")
+	fmt.Fprintf(w, "%-15s\t%s\t%s\t\n", "---------------", "--------", "----")
+	fmt.Fprintf(w, "%-15s\t%s\t%s\t\n", thisBridge.Host, myBridgeID, thisBridge.User)
 	w.Flush()
 }
 
