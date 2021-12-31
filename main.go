@@ -17,7 +17,7 @@ import (
 )
 
 const applicationName string = "huelight"
-const applicationVersion string = "v0.2.6.1"
+const applicationVersion string = "v0.2.6.2"
 
 var (
 	myBridge     *huego.Bridge
@@ -92,18 +92,24 @@ func main() {
 
 	user := viper.GetString("hueuser")
 
-	if viper.IsSet("light") {
-		fmt.Printf("Light string: %s\n", viper.GetString("light"))
-		var lighterr error
-		lightID, lighterr = strconv.Atoi(viper.GetString("light"))
-		if lighterr != nil {
-			fmt.Printf("ERROR: \"--light %s\" is not valid\n", viper.GetString("light"))
-			os.Exit(1)
+	/*
+		if viper.IsSet("light") {
+			fmt.Printf("Light string: %s\n", viper.GetString("light"))
+			var lighterr error
+			lightID, lighterr = strconv.Atoi(viper.GetString("light"))
+			if lighterr != nil {
+
+				//getLightIDFromName
+				getid, temperr := getLightIDFromName(viper.GetString("light"))
+
+				fmt.Printf("ERROR: \"--light %s\" is not valid\n", viper.GetString("light"))
+				os.Exit(1)
+			}
+			fmt.Printf("Light number: %d\n", lightID)
+		} else {
+			fmt.Println("no light set")
 		}
-		fmt.Printf("Light number: %d\n", lightID)
-	} else {
-		fmt.Println("no light set")
-	}
+	*/
 
 	if viper.IsSet("action") {
 		if checkAction(viper.GetString("action")) {
@@ -177,6 +183,31 @@ func main() {
 
 	// load up all the lights from bridge
 	loadLights()
+
+	//--==========
+	if viper.IsSet("light") {
+		fmt.Printf("Light string: %s\n", viper.GetString("light"))
+		var lighterr error
+		lightID, lighterr = strconv.Atoi(viper.GetString("light"))
+		if lighterr != nil {
+
+			//getLightIDFromName
+			getid, foundLightID := getLightIDFromName(viper.GetString("light"))
+
+			if foundLightID {
+				fmt.Printf("Matched light name \"%s\" to lightid %d\n", viper.GetString("light"), getid)
+				lightID = getid
+			} else {
+				fmt.Printf("ERROR: \"--light %s\" is not a valid light name or light id\n", viper.GetString("light"))
+				os.Exit(1)
+			}
+		}
+		fmt.Printf("Light number: %d\n", lightID)
+	} else {
+		fmt.Println("no light set")
+	}
+
+	//--==========
 
 	if viper.IsSet("list") || viper.IsSet("listall") {
 		fmt.Println("====================")
@@ -466,31 +497,28 @@ func checkLightValid(findLightID int) bool {
 		})
 	*/
 
-	var found bool = false
-
 	for _, eachlight := range loadedLights {
 		//fmt.Printf("light: %-2d  name:%s\n", eachlight.ID, eachlight.Name)
 		if eachlight.ID == findLightID {
-			found = true
+			return true
 		}
 	}
 
-	return found
+	return false
 }
 
 // loads lights from the bridge preventing multiple uneccessary calls to bridge
 func loadLights() {
-
 	var errload error
 	lights, errload := myBridge.GetLights()
 	if errload != nil {
-		fmt.Println("ERROR: Could not load lights from bridge\n")
+		fmt.Println("ERROR: Could not load lights from bridge")
 		os.Exit(1)
 	}
 
 	// if no lights were found
 	if len(lights) < 1 {
-		fmt.Println("ERROR: No lights found on bridge\n")
+		fmt.Println("ERROR: No lights found on bridge")
 		os.Exit(1)
 	}
 
@@ -503,4 +531,14 @@ func loadLights() {
 
 	// make in to global variable so that other functions can use the loaded lights list
 	loadedLights = lights
+}
+
+// find a lightID when given the name of a light
+func getLightIDFromName(lightName string) (int, bool) {
+	for _, eachlight := range loadedLights {
+		if strings.EqualFold(strings.ToLower(eachlight.Name), strings.ToLower(lightName)) {
+			return eachlight.ID, true
+		}
+	}
+	return 0, false
 }
