@@ -6,6 +6,7 @@ A simple tool to control hue lights from the command line
 - select which bridge
 - delete user/whitelist
 - create user and save to config
+- choose application name (user/whitelist name)
 
 ## Done
 - print bridge details
