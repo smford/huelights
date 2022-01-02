@@ -1,2 +1,3 @@
 ---
+bridge: 192.168.10.151
 hueuser: abcdefghijklmnopqrstuvwxyz
