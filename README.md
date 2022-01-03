@@ -3,8 +3,6 @@
 A simple tool to control hue lights from the command line
 
 ## To do
-- select which bridge
-- create user and save to config
 - choose application name (user/whitelist name)
 
 ## Done
@@ -15,6 +13,9 @@ A simple tool to control hue lights from the command line
 - display bridge configuration
 - check if lightid is valid
 - allow lightID or name to be passed with --light
+- select which bridge
+- create user
+- generate and save a config file
 
 ## Abandoned
 - delete user/whitelist: cannot be done via api, can only be done via https://account.meethue.com/apps

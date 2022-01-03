@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"gopkg.in/yaml.v3"
+	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -18,7 +20,7 @@ import (
 )
 
 const applicationName string = "huelight"
-const applicationVersion string = "v0.3"
+const applicationVersion string = "v0.3.1"
 
 var (
 	myBridge     *huego.Bridge
@@ -33,6 +35,12 @@ var (
 		"status": "Show current state",
 	}
 )
+
+type huelightConfig struct {
+	Bridge      string `yaml:"bridge"`
+	Username    string `yaml:"username"`
+	Application string `yaml:"application"`
+}
 
 func init() {
 	// tidy
@@ -51,7 +59,8 @@ func init() {
 	flag.String("deleteuser", "", "Deletes a user")
 	flag.Bool("findbridges", false, "Searches network for Hue Bridges")
 	flag.String("bridge", "", "Which bridge to use (IP Address)")
-
+	flag.String("username", "", "Username to login to bridge")
+	flag.Bool("makeconfig", false, "Make a configuration file")
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
@@ -81,9 +90,21 @@ func init() {
 
 	viper.SetConfigName(config)
 
+	if viper.GetBool("makeconfig") {
+		fmt.Print("Do you want to create a config file? [y/n]: ")
+		if yesNoPrompt() {
+			setupConfig()
+			os.Exit(0)
+		} else {
+			fmt.Println("did not want to setup a config file, exiting")
+			os.Exit(2)
+		}
+	}
+
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			log.Fatal("Config file not found")
+			fmt.Printf("ERROR: Config file \"%s\" not found, exiting\n", viper.GetString("config"))
+			os.Exit(1)
 		} else {
 			log.Fatal("Config file was found but another error was discovered: ", err)
 		}
@@ -93,11 +114,18 @@ func init() {
 		displayConfig()
 		os.Exit(0)
 	}
+
+	if !viper.IsSet("bridge") {
+
+		fmt.Println("no bridge set")
+		os.Exit(1)
+	}
 }
 
 func main() {
 	if viper.IsSet("findbridges") {
 		discoverBridges()
+		printDiscoveredBridges()
 		os.Exit(0)
 	}
 
@@ -133,6 +161,7 @@ func main() {
 		if !viper.IsSet("bridge") {
 			fmt.Printf("\nWARN: Bridge has not been set, here is a list of discovered Hue bridges:\n\n")
 			discoverBridges()
+			printDiscoveredBridges()
 			var userprompt string
 			fmt.Printf("\nPlease type the IP address of the Hue bridge you wish to use: ")
 			fmt.Scanln(&userprompt)
@@ -256,6 +285,8 @@ func displayHelp() {
       --deleteuser              Deletes a user
       --findbridges             Discover Hue bridges on network
       --bridge                  Which bridge to use (IP Address)
+      --username                Username to login to bridge
+      --makeconfig              Make a configuration file
 `
 	fmt.Println(applicationName + " " + applicationVersion)
 	fmt.Println(message)
@@ -613,19 +644,22 @@ func discoverBridges() {
 		// tidy
 		panic(brerr)
 	}
-	if len(foundBridges) < 1 {
-		fmt.Println("ERROR: No Hue bridges found on network")
-		os.Exit(1)
-	}
-	const padding = 1
-	w := tabwriter.NewWriter(os.Stdout, 0, 2, padding, ' ', 0)
-	fmt.Fprintf(w, "%s\t%s\t\n", "IP Address", "ID")
-	fmt.Fprintf(w, "%s\t%s\t\n", "----------", "--")
-	for _, eachbridge := range foundBridges {
-		fmt.Fprintf(w, "%s\t%s\t\n", eachbridge.Host, eachbridge.ID)
-	}
-	w.Flush()
-	fmt.Printf("\nFound %d bridges\n", len(foundBridges))
+
+	/*
+		if len(foundBridges) < 1 {
+			fmt.Println("ERROR: No Hue bridges found on network")
+			os.Exit(1)
+		}
+		const padding = 1
+		w := tabwriter.NewWriter(os.Stdout, 0, 2, padding, ' ', 0)
+		fmt.Fprintf(w, "%s\t%s\t\n", "IP Address", "ID")
+		fmt.Fprintf(w, "%s\t%s\t\n", "----------", "--")
+		for _, eachbridge := range foundBridges {
+			fmt.Fprintf(w, "%s\t%s\t\n", eachbridge.Host, eachbridge.ID)
+		}
+		w.Flush()
+		fmt.Printf("\nFound %d bridges\n", len(foundBridges))
+	*/
 }
 
 // checks if a bridge is valid
@@ -653,4 +687,128 @@ func getBridge(mybridge string) huego.Bridge {
 		}
 	}
 	return returnbridge
+}
+
+// sets up configuration
+func setupConfig() {
+
+	var myNewConfig huelightConfig
+
+	var newConfigFile string
+
+	if !viper.IsSet("config") {
+		var userprompt string
+		fmt.Println()
+		fmt.Printf("The default configuration file %s looks for is \"config.yaml\" in the current directory.\n\nIf you choose a different name it will need to end in .yml or .yaml and always be passed to %s with the --config [filename] argument.\n", applicationName, applicationName)
+		fmt.Print("Please choose a filename: ")
+		fmt.Scanln(&userprompt)
+
+		// fix: improve the checking of file
+		if len(userprompt) < 4 {
+			fmt.Println("filename too short, exiting")
+			os.Exit(1)
+		}
+
+		newConfigFile = userprompt
+	} else {
+		// fix: check config file before blatting it
+		newConfigFile = viper.GetString("config")
+	}
+
+	discoverBridges()
+
+	if !viper.IsSet("bridge") {
+
+		fmt.Println()
+		printDiscoveredBridges()
+
+		var userprompt string
+		fmt.Print("\nPlease type the IP of bridge you want to use: ")
+		fmt.Scanln(&userprompt)
+
+		// fix: improve the checking of file
+
+		myNewConfig.Bridge = userprompt
+
+	} else {
+		myNewConfig.Bridge = viper.GetString("bridge")
+	}
+
+	// check if bridge is valid
+	if !checkBridgeValid(myNewConfig.Bridge) {
+		fmt.Printf("WARN: Bridge \"%s\" is not valid, do you wish to continue [y/n]: ", myNewConfig.Bridge)
+		if !yesNoPrompt() {
+			os.Exit(1)
+		}
+	}
+
+	if !viper.IsSet("username") {
+		var userprompt string
+		fmt.Print("Please type a username: ")
+		fmt.Scanln(&userprompt)
+
+		// fix: check username
+
+		myNewConfig.Username = userprompt
+	} else {
+		myNewConfig.Username = viper.GetString("username")
+	}
+
+	myNewConfig.Application = applicationName
+
+	fmt.Println("---------------")
+	fmt.Printf("Config file: %s\n", newConfigFile)
+	fmt.Printf("     Bridge: %s\n", myNewConfig.Bridge)
+	fmt.Printf("   Username: %s\n", myNewConfig.Username)
+	fmt.Printf("Application: %s\n", myNewConfig.Application)
+	fmt.Println()
+
+	fmt.Printf("Save this configuration to file \"%s\" [y/n]: ", newConfigFile)
+	if yesNoPrompt() {
+		fmt.Println("Saving configuration")
+
+		yamlData, err := yaml.Marshal(&myNewConfig)
+
+		if err != nil {
+			fmt.Printf("ERROR: Cannot generate configuration. %v", err)
+		}
+
+		err = ioutil.WriteFile(newConfigFile, yamlData, 0644)
+		if err != nil {
+			fmt.Printf("ERROR: Unable to save into the file: %s\n", newConfigFile)
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+	} else {
+		fmt.Println("\nWARN: Aborting config file save")
+	}
+}
+
+// display found bridges
+func printDiscoveredBridges() {
+	if len(foundBridges) < 1 {
+		fmt.Println("ERROR: No Hue bridges found on network")
+		os.Exit(1)
+	}
+	const padding = 1
+	w := tabwriter.NewWriter(os.Stdout, 0, 2, padding, ' ', 0)
+	fmt.Fprintf(w, "%s\t%s\t\n", "IP Address", "ID")
+	fmt.Fprintf(w, "%s\t%s\t\n", "----------", "--")
+	for _, eachbridge := range foundBridges {
+		fmt.Fprintf(w, "%s\t%s\t\n", eachbridge.Host, eachbridge.ID)
+	}
+	w.Flush()
+	fmt.Printf("\nFound %d bridges\n", len(foundBridges))
+}
+
+// simple yes or no prompt, returns true if y or yes
+func yesNoPrompt() bool {
+	var userprompt string
+	fmt.Scanln(&userprompt)
+	if strings.EqualFold(userprompt, "y") || strings.EqualFold(userprompt, "yes") {
+		return true
+	}
+
+	return false
 }
