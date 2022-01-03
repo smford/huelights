@@ -20,7 +20,7 @@ import (
 )
 
 const applicationName string = "huelight"
-const applicationVersion string = "v0.3.1"
+const applicationVersion string = "v0.3.2"
 
 var (
 	myBridge     *huego.Bridge
@@ -129,7 +129,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	user := viper.GetString("hueuser")
+	user := viper.GetString("username")
 
 	if viper.IsSet("action") {
 		if checkAction(viper.GetString("action")) {
