@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
+	"gopkg.in/yaml.v3"
+	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -17,13 +20,14 @@ import (
 )
 
 const applicationName string = "huelight"
-const applicationVersion string = "v0.2.6.3"
+const applicationVersion string = "v0.3.1"
 
 var (
 	myBridge     *huego.Bridge
 	myBridgeID   string
 	lightID      int
 	loadedLights []huego.Light
+	foundBridges []huego.Bridge
 	action       string
 	validActions = map[string]string{
 		"on":     "Turn light on",
@@ -31,6 +35,12 @@ var (
 		"status": "Show current state",
 	}
 )
+
+type huelightConfig struct {
+	Bridge      string `yaml:"bridge"`
+	Username    string `yaml:"username"`
+	Application string `yaml:"application"`
+}
 
 func init() {
 	// tidy
@@ -43,9 +53,14 @@ func init() {
 	flag.Bool("listall", false, "List all lights details")
 	flag.Bool("list", false, "List lights")
 	flag.Bool("showbridge", false, "Show bridge details")
-	flag.Bool("showusers", false, "Show user list")
+	flag.Bool("showusers", false, "Show whitelist/all users")
 	flag.Bool("bridgeconfig", false, "Show bridge configuration")
-
+	flag.String("createuser", "", "Creates a user")
+	flag.String("deleteuser", "", "Deletes a user")
+	flag.Bool("findbridges", false, "Searches network for Hue Bridges")
+	flag.String("bridge", "", "Which bridge to use (IP Address)")
+	flag.String("username", "", "Username to login to bridge")
+	flag.Bool("makeconfig", false, "Make a configuration file")
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
@@ -75,18 +90,42 @@ func init() {
 
 	viper.SetConfigName(config)
 
+	if viper.GetBool("makeconfig") {
+		fmt.Print("Do you want to create a config file? [y/n]: ")
+		if yesNoPrompt() {
+			setupConfig()
+			os.Exit(0)
+		} else {
+			fmt.Println("did not want to setup a config file, exiting")
+			os.Exit(2)
+		}
+	}
+
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			log.Fatal("Config file not found")
+			fmt.Printf("ERROR: Config file \"%s\" not found, exiting\n", viper.GetString("config"))
+			os.Exit(1)
 		} else {
 			log.Fatal("Config file was found but another error was discovered: ", err)
 		}
 	}
+
+	if viper.GetBool("displayconfig") {
+		displayConfig()
+		os.Exit(0)
+	}
+
+	if !viper.IsSet("bridge") {
+
+		fmt.Println("no bridge set")
+		os.Exit(1)
+	}
 }
 
 func main() {
-	if viper.GetBool("displayconfig") {
-		displayConfig()
+	if viper.IsSet("findbridges") {
+		discoverBridges()
+		printDiscoveredBridges()
 		os.Exit(0)
 	}
 
@@ -116,8 +155,42 @@ func main() {
 	// store selected bridge ID because struct loses it once logged in
 	myBridgeID = myBridge.ID
 
-	// login in to bridge
-	myBridge = myBridge.Login(user)
+	bridgeLogin(user)
+
+	if viper.IsSet("createuser") {
+		if !viper.IsSet("bridge") {
+			fmt.Printf("\nWARN: Bridge has not been set, here is a list of discovered Hue bridges:\n\n")
+			discoverBridges()
+			printDiscoveredBridges()
+			var userprompt string
+			fmt.Printf("\nPlease type the IP address of the Hue bridge you wish to use: ")
+			fmt.Scanln(&userprompt)
+
+			if checkBridgeValid(userprompt) {
+				fmt.Printf("Bridge found, using: %s\n", userprompt)
+				//myBridge = getBridge(userprompt)
+				// store selected bridge ID because struct loses it once logged in
+				myBridgeID = myBridge.ID
+			} else {
+				fmt.Printf("Bridge not found, exiting: %s\n", userprompt)
+				os.Exit(1)
+			}
+
+		}
+		didmakeuser, username := createUser(viper.GetString("createuser"))
+		if didmakeuser {
+			fmt.Printf("Created User: %s\n", viper.GetString("createuser"))
+			fmt.Printf("    Username: %s\n\n", username)
+			fmt.Println("Hue uses the terms \"user\" and \"username\" in a confusing way.  User typically refer to an \"application\", whereas Username refers to Hue generated secret string used like a password or an API key.  This tool uses the Username when interacting with the Hue Bridge.")
+			fmt.Println("\nCurrent whitelist/users are:")
+			bridgeLogin(username)
+			displayUsers(myBridge)
+			os.Exit(0)
+		} else {
+			fmt.Printf("ERROR: could not create user: %s\n", viper.GetString("createuser"))
+			os.Exit(1)
+		}
+	}
 
 	if viper.GetBool("showbridge") {
 		displayBridge(myBridge)
@@ -140,6 +213,11 @@ func main() {
 	if !areLightsLoaded() {
 		fmt.Println("ERROR: No lights found")
 		os.Exit(1)
+	}
+
+	if viper.IsSet("deleteuser") {
+		fmt.Println("You can only delete a user via the Hue website at https://account.meethue.com/apps")
+		os.Exit(0)
 	}
 
 	if viper.IsSet("light") {
@@ -192,17 +270,23 @@ func displayConfig() {
 func displayHelp() {
 	// tidy
 	message := `
-      --config string       Configuration file: /path/to/file.yaml (default "./config.yaml")
-      --displayconfig       Display configuration
-      --help                Display help
-      --version             Display version
-      --list                List lights
-      --listall             List all details about the lights
-      --action              Do actions
-      --showusers           List all user/whitelist details
-      --showbridge          Show logged in bridge details
-      --light               Select a light
-      --bridgeconfig        Show bridge configuration
+      --config string           Configuration file: /path/to/file.yaml (default "./config.yaml")
+      --displayconfig           Display configuration
+      --help                    Display help
+      --version                 Display version
+      --list                    List lights
+      --listall                 List all details about the lights
+      --action                  Do actions
+      --showusers               List all user/whitelist details
+      --showbridge              Show logged in bridge details
+      --light                   Select a light
+      --bridgeconfig            Show bridge configuration
+      --createuser [username]   Creates a user
+      --deleteuser              Deletes a user
+      --findbridges             Discover Hue bridges on network
+      --bridge                  Which bridge to use (IP Address)
+      --username                Username to login to bridge
+      --makeconfig              Make a configuration file
 `
 	fmt.Println(applicationName + " " + applicationVersion)
 	fmt.Println(message)
@@ -488,5 +572,243 @@ func areLightsLoaded() bool {
 	if len(loadedLights) > 0 {
 		return true
 	}
+	return false
+}
+
+// check if a user exists
+func doesUserExist(checkuser string) bool {
+	fmt.Println("starting doesuserexist")
+	allusers, err := myBridge.GetUsers()
+	if err != nil {
+		// tidy
+		panic(err)
+	}
+
+	prettyPrint(allusers)
+
+	for _, eachuser := range allusers {
+		if strings.EqualFold(strings.ToLower(eachuser.Name), checkuser) {
+			fmt.Printf("Found user: %s\n", checkuser)
+			return true
+		}
+	}
+
+	fmt.Printf("NOT found user: %s\n", checkuser)
+	return false
+}
+
+// creates a user/app/whitelist
+func createUser(newuser string) (bool, string) {
+
+	if doesUserExist(newuser) {
+		// user already exists
+		fmt.Println("ERROR: user already exists")
+		return false, ""
+	}
+
+	// user doesn't exists so lets create one
+	fmt.Println("creating user here")
+	var userprompt string
+	fmt.Println("To create the user you must first press the button on Hue Bridge.  Please press the button then return here and press the [return] key")
+	fmt.Scanln(&userprompt)
+	username, err := myBridge.CreateUser(newuser)
+
+	if err == nil {
+		return true, username
+	}
+
+	fmt.Println("==============")
+
+	fmt.Println(prettyPrint(err))
+	fmt.Println("==============")
+
+	return false, ""
+}
+
+// pretty print a struct
+func prettyPrint(i interface{}) string {
+	s, _ := json.MarshalIndent(i, "", "\t")
+	return string(s)
+}
+
+// login to the bridge
+func bridgeLogin(loginas string) {
+	myBridge = myBridge.Login(loginas)
+}
+
+// discover all bridges
+func discoverBridges() {
+	var brerr error
+	foundBridges, brerr = huego.DiscoverAll()
+	if brerr != nil {
+		// tidy
+		panic(brerr)
+	}
+
+	/*
+		if len(foundBridges) < 1 {
+			fmt.Println("ERROR: No Hue bridges found on network")
+			os.Exit(1)
+		}
+		const padding = 1
+		w := tabwriter.NewWriter(os.Stdout, 0, 2, padding, ' ', 0)
+		fmt.Fprintf(w, "%s\t%s\t\n", "IP Address", "ID")
+		fmt.Fprintf(w, "%s\t%s\t\n", "----------", "--")
+		for _, eachbridge := range foundBridges {
+			fmt.Fprintf(w, "%s\t%s\t\n", eachbridge.Host, eachbridge.ID)
+		}
+		w.Flush()
+		fmt.Printf("\nFound %d bridges\n", len(foundBridges))
+	*/
+}
+
+// checks if a bridge is valid
+func checkBridgeValid(mybridge string) bool {
+	if len(foundBridges) < 1 {
+		return false
+	}
+
+	for _, eachbridge := range foundBridges {
+		if strings.EqualFold(eachbridge.Host, mybridge) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// returns a selected bridge, from IP address, after a DiscoverAll has populated the foundBridges variable
+func getBridge(mybridge string) huego.Bridge {
+	var returnbridge huego.Bridge
+	for _, eachbridge := range foundBridges {
+		fmt.Printf("pretty: %s\n", prettyPrint(eachbridge))
+		if strings.EqualFold(eachbridge.Host, mybridge) {
+			returnbridge = eachbridge
+		}
+	}
+	return returnbridge
+}
+
+// sets up configuration
+func setupConfig() {
+
+	var myNewConfig huelightConfig
+
+	var newConfigFile string
+
+	if !viper.IsSet("config") {
+		var userprompt string
+		fmt.Println()
+		fmt.Printf("The default configuration file %s looks for is \"config.yaml\" in the current directory.\n\nIf you choose a different name it will need to end in .yml or .yaml and always be passed to %s with the --config [filename] argument.\n", applicationName, applicationName)
+		fmt.Print("Please choose a filename: ")
+		fmt.Scanln(&userprompt)
+
+		// fix: improve the checking of file
+		if len(userprompt) < 4 {
+			fmt.Println("filename too short, exiting")
+			os.Exit(1)
+		}
+
+		newConfigFile = userprompt
+	} else {
+		// fix: check config file before blatting it
+		newConfigFile = viper.GetString("config")
+	}
+
+	discoverBridges()
+
+	if !viper.IsSet("bridge") {
+
+		fmt.Println()
+		printDiscoveredBridges()
+
+		var userprompt string
+		fmt.Print("\nPlease type the IP of bridge you want to use: ")
+		fmt.Scanln(&userprompt)
+
+		// fix: improve the checking of file
+
+		myNewConfig.Bridge = userprompt
+
+	} else {
+		myNewConfig.Bridge = viper.GetString("bridge")
+	}
+
+	// check if bridge is valid
+	if !checkBridgeValid(myNewConfig.Bridge) {
+		fmt.Printf("WARN: Bridge \"%s\" is not valid, do you wish to continue [y/n]: ", myNewConfig.Bridge)
+		if !yesNoPrompt() {
+			os.Exit(1)
+		}
+	}
+
+	if !viper.IsSet("username") {
+		var userprompt string
+		fmt.Print("Please type a username: ")
+		fmt.Scanln(&userprompt)
+
+		// fix: check username
+
+		myNewConfig.Username = userprompt
+	} else {
+		myNewConfig.Username = viper.GetString("username")
+	}
+
+	myNewConfig.Application = applicationName
+
+	fmt.Println("---------------")
+	fmt.Printf("Config file: %s\n", newConfigFile)
+	fmt.Printf("     Bridge: %s\n", myNewConfig.Bridge)
+	fmt.Printf("   Username: %s\n", myNewConfig.Username)
+	fmt.Printf("Application: %s\n", myNewConfig.Application)
+	fmt.Println()
+
+	fmt.Printf("Save this configuration to file \"%s\" [y/n]: ", newConfigFile)
+	if yesNoPrompt() {
+		fmt.Println("Saving configuration")
+
+		yamlData, err := yaml.Marshal(&myNewConfig)
+
+		if err != nil {
+			fmt.Printf("ERROR: Cannot generate configuration. %v", err)
+		}
+
+		err = ioutil.WriteFile(newConfigFile, yamlData, 0644)
+		if err != nil {
+			fmt.Printf("ERROR: Unable to save into the file: %s\n", newConfigFile)
+			fmt.Println(err)
+			os.Exit(1)
+		}
+
+	} else {
+		fmt.Println("\nWARN: Aborting config file save")
+	}
+}
+
+// display found bridges
+func printDiscoveredBridges() {
+	if len(foundBridges) < 1 {
+		fmt.Println("ERROR: No Hue bridges found on network")
+		os.Exit(1)
+	}
+	const padding = 1
+	w := tabwriter.NewWriter(os.Stdout, 0, 2, padding, ' ', 0)
+	fmt.Fprintf(w, "%s\t%s\t\n", "IP Address", "ID")
+	fmt.Fprintf(w, "%s\t%s\t\n", "----------", "--")
+	for _, eachbridge := range foundBridges {
+		fmt.Fprintf(w, "%s\t%s\t\n", eachbridge.Host, eachbridge.ID)
+	}
+	w.Flush()
+	fmt.Printf("\nFound %d bridges\n", len(foundBridges))
+}
+
+// simple yes or no prompt, returns true if y or yes
+func yesNoPrompt() bool {
+	var userprompt string
+	fmt.Scanln(&userprompt)
+	if strings.EqualFold(userprompt, "y") || strings.EqualFold(userprompt, "yes") {
+		return true
+	}
+
 	return false
 }
