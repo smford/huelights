@@ -3,7 +3,13 @@
 A simple tool to control hue lights from the command line
 
 ## To do
-- choose application name (user/whitelist name)
+- choose application name (user/whitelist name) and use Hue convention of applicaton#user
+- check filenames
+- check usernames (if possible) when making config
+- when making config file and getting username, allow the creation of a user
+- fix all "// fix"
+- tidy all "// tidy"
+- impliment better logging and output
 
 ## Done
 - print bridge details
