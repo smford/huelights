@@ -20,7 +20,7 @@ import (
 )
 
 const applicationName string = "huelight"
-const applicationVersion string = "v0.3.2"
+const applicationVersion string = "v0.4"
 
 var (
 	myBridge     *huego.Bridge
@@ -30,9 +30,17 @@ var (
 	foundBridges []huego.Bridge
 	action       string
 	validActions = map[string]string{
-		"on":     "Turn light on",
-		"off":    "Turn light off",
-		"status": "Show current state",
+		"on":         "Turn light on",
+		"off":        "Turn light off",
+		"status":     "Show current state",
+		"hue":        "Set colour",
+		"brightness": "Set Brightness",
+	}
+	colours = map[string]huelightColour{
+		"red":   {float32(0.675), float32(0.322)},
+		"green": {float32(0.4091), float32(0.518)},
+		"blue":  {float32(0.167), float32(0.04)},
+		"white": {float32(0.3227), float32(0.3290)},
 	}
 )
 
@@ -40,6 +48,11 @@ type huelightConfig struct {
 	Bridge      string `yaml:"bridge"`
 	Username    string `yaml:"username"`
 	Application string `yaml:"application"`
+}
+
+type huelightColour struct {
+	X float32 `yaml:"x"`
+	Y float32 `yaml:"y"`
 }
 
 func init() {
@@ -61,6 +74,7 @@ func init() {
 	flag.String("bridge", "", "Which bridge to use (IP Address)")
 	flag.String("username", "", "Username to login to bridge")
 	flag.Bool("makeconfig", false, "Make a configuration file")
+	flag.String("value", "", "Value")
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
 	viper.BindPFlags(pflag.CommandLine)
@@ -287,6 +301,7 @@ func displayHelp() {
       --bridge                  Which bridge to use (IP Address)
       --username                Username to login to bridge
       --makeconfig              Make a configuration file
+      --value                   Value to set
 `
 	fmt.Println(applicationName + " " + applicationVersion)
 	fmt.Println(message)
@@ -433,6 +448,94 @@ func doAction() {
 
 		fmt.Printf("Light: \"%s\" is %s\n", light.Name, lightstate)
 	}
+
+	//======
+	if strings.EqualFold(action, "hue") {
+		if !viper.IsSet("value") {
+			fmt.Println("ERROR: you must also use --value when using action \"hue\"")
+			os.Exit(1)
+		}
+
+		if !checkValue(viper.GetString("value")) {
+			fmt.Printf("ERROR: value \"%s\" is not valid\n", viper.GetString("value"))
+			os.Exit(0)
+		}
+
+		var newState huego.State
+
+		//newState.Xy = uint16(checkedValue)
+		//newState.Xy = []float32{float32(0.3227), float32(0.3290)} // white
+		//newState.Xy = []float32{colours[strings.ToLower(viper.GetString("value")).X, colours[strings.ToLower(viper.GetString("value")).Y]}
+		//newState.Xy = []float32{float32(0.4), float32(0.5)}
+		fmt.Printf("colour: %s\nX: %f\nY: %f\n", viper.GetString("value"), colours[viper.GetString("value")].X, colours[viper.GetString("value")].Y)
+		newState.Xy = []float32{
+			colours[viper.GetString("value")].X,
+			colours[viper.GetString("value")].Y,
+		}
+		newState.On = true
+		//newState.Effect = "colorloop"
+		//newState.Bri = 10
+
+		fmt.Println("==================")
+		fmt.Println(prettyPrint(newState))
+		fmt.Println("==================")
+
+		myResponse, err := myBridge.SetLightState(lightID, newState)
+		if err != nil {
+			// tidy
+			panic(err)
+		}
+
+		fmt.Println("==================")
+		fmt.Println(prettyPrint(myResponse))
+		fmt.Println("==================")
+
+	}
+
+	//======
+	if strings.EqualFold(action, "brightness") {
+		if !viper.IsSet("value") {
+			fmt.Println("ERROR: you must also use --value when using action \"brightness\"")
+			os.Exit(1)
+		}
+
+		var newState huego.State
+
+		newState.On = true
+
+		newbright, brierr := strconv.Atoi(viper.GetString("value"))
+
+		if brierr != nil {
+			// tidy
+			fmt.Printf("ERROR: brightness value \"%s\" is not valid\n", viper.GetString("value"))
+			os.Exit(1)
+		}
+
+		if (newbright < 0) || (newbright > 100) {
+			fmt.Printf("ERROR: Valid brightness values are 1 - 100 inclusive\n")
+			os.Exit(1)
+		}
+
+		var calculateBrightness float32
+
+		// why 254 rather than 256?  Because hue api maximum brightness is 254
+		calculateBrightness = (254.0 / 100.0) * float32(newbright)
+
+		//calculateBrightness = calculateBrightness * float32(newbright)
+		//fmt.Printf("after 2: %f\n", calculateBrightness)
+
+		newState.Bri = uint8(calculateBrightness)
+
+		//myResponse, err := myBridge.SetLightState(lightID, newState)
+		_, err := myBridge.SetLightState(lightID, newState)
+		if err != nil {
+			// tidy
+			panic(err)
+		}
+
+		//fmt.Println(prettyPrint(myResponse))
+	}
+
 }
 
 // display all configuration of the bridge
@@ -811,4 +914,15 @@ func yesNoPrompt() bool {
 	}
 
 	return false
+}
+
+// checks that a --value is valid and converts to an int where appropriate
+func checkValue(value string) bool {
+
+	if _, ok := colours[strings.ToLower(value)]; ok {
+		return true
+	}
+
+	return false
+
 }

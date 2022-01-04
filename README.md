@@ -10,6 +10,12 @@ A simple tool to control hue lights from the command line
 - fix all "// fix"
 - tidy all "// tidy"
 - impliment better logging and output
+- handle setting colour of lights
+- handle when setting a colour for a light that doesn't support it
+- handle colour gamuts depending on light type (https://github.com/benknight/hue-python-rgb-converter/blob/master/rgbxy/__init__.py and https://www.enigmaticdevices.com/philips-hue-lights-popular-xy-color-values/)
+- add/remove/update a light
+- list sensors
+- add/remove/update a sensor
 
 ## Done
 - print bridge details
