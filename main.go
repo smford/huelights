@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"io/ioutil"
 	"log"
 	"os"
@@ -14,13 +13,15 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/amimof/huego"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
 
 const applicationName string = "huelight"
-const applicationVersion string = "v0.3.2"
+const applicationVersion string = "v0.3.3"
 
 var (
 	myBridge     *huego.Bridge
@@ -63,7 +64,7 @@ func init() {
 	flag.Bool("makeconfig", false, "Make a configuration file")
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 	pflag.Parse()
-	viper.BindPFlags(pflag.CommandLine)
+	checkErr(viper.BindPFlags(pflag.CommandLine))
 
 	if viper.GetBool("help") {
 		displayHelp()
@@ -406,25 +407,19 @@ func doAction() {
 	// turn light on and off
 	if strings.EqualFold(action, "on") || strings.EqualFold(action, "off") {
 		light, err := myBridge.GetLight(lightID)
-		if err != nil {
-			// tidy
-			panic(err)
-		}
+		checkErr(err)
 
 		if strings.EqualFold(action, "on") {
-			light.On()
+			checkErr(light.On())
 		} else {
-			light.Off()
+			checkErr(light.Off())
 		}
 	}
 
 	// check status of light
 	if strings.EqualFold(action, "status") {
 		light, err := myBridge.GetLight(lightID)
-		if err != nil {
-			// tidy
-			panic(err)
-		}
+		checkErr(err)
 
 		lightstate := "off"
 		if light.IsOn() {
@@ -438,10 +433,7 @@ func doAction() {
 // display all configuration of the bridge
 func displayBridgeConfig() {
 	myconfig, err := myBridge.GetConfig()
-	if err != nil {
-		// tidy
-		panic(err)
-	}
+	checkErr(err)
 
 	const padding = 1
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, padding, ' ', 0)
@@ -569,20 +561,14 @@ func getLightIDFromName(lightName string) (int, bool) {
 
 // have lights been loaded?
 func areLightsLoaded() bool {
-	if len(loadedLights) > 0 {
-		return true
-	}
-	return false
+	return len(loadedLights) > 0
 }
 
 // check if a user exists
 func doesUserExist(checkuser string) bool {
 	fmt.Println("starting doesuserexist")
 	allusers, err := myBridge.GetUsers()
-	if err != nil {
-		// tidy
-		panic(err)
-	}
+	checkErr(err)
 
 	prettyPrint(allusers)
 
@@ -640,10 +626,7 @@ func bridgeLogin(loginas string) {
 func discoverBridges() {
 	var brerr error
 	foundBridges, brerr = huego.DiscoverAll()
-	if brerr != nil {
-		// tidy
-		panic(brerr)
-	}
+	checkErr(brerr)
 
 	/*
 		if len(foundBridges) < 1 {
@@ -677,17 +660,18 @@ func checkBridgeValid(mybridge string) bool {
 	return false
 }
 
+// commented out until used
 // returns a selected bridge, from IP address, after a DiscoverAll has populated the foundBridges variable
-func getBridge(mybridge string) huego.Bridge {
-	var returnbridge huego.Bridge
-	for _, eachbridge := range foundBridges {
-		fmt.Printf("pretty: %s\n", prettyPrint(eachbridge))
-		if strings.EqualFold(eachbridge.Host, mybridge) {
-			returnbridge = eachbridge
-		}
-	}
-	return returnbridge
-}
+//func getBridge(mybridge string) huego.Bridge {
+//	var returnbridge huego.Bridge
+//	for _, eachbridge := range foundBridges {
+//		fmt.Printf("pretty: %s\n", prettyPrint(eachbridge))
+//		if strings.EqualFold(eachbridge.Host, mybridge) {
+//			returnbridge = eachbridge
+//		}
+//	}
+//	return returnbridge
+//}
 
 // sets up configuration
 func setupConfig() {
@@ -811,4 +795,11 @@ func yesNoPrompt() bool {
 	}
 
 	return false
+}
+
+// checks errors
+func checkErr(err error) {
+	if err != nil {
+		log.Fatal(err)
+	}
 }
